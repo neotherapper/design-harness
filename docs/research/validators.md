@@ -25,10 +25,10 @@ they are an order of magnitude slower than `tsc`/`eslint`. Visual regression is 
 structurally not just deterministic-vs-heuristic: Chromatic's pixel diff is deterministic, but its
 gate is a human accept/deny of an intentional change, wired through a required PR status check, not
 purely through the CLI exit code; Playwright's `toHaveScreenshot` is the same shape at unit scale, with
-committed baseline images standing in for the human-reviewed baseline. No widely-used tool found here
+committed baseline images standing in for the human-reviewed baseline. No general-purpose tool found here
 validates that a token reference in code actually resolves to an entry in a DTCG-format `tokens.json`
 directly against the raw token tree; the closest mainstream tool needs a pre-flattened custom-properties
-JSON instead. One narrow, narrow-scope exception exists (an obscure Rust linter's rule; see Gaps).
+JSON instead. One narrow, narrow-scope exception exists (a single Rust linter's rule; see Gaps).
 
 ## Token conformance (CSS and TSX)
 
@@ -60,7 +60,7 @@ matching `--brand-blue` declaration anywhere in scope. Custom properties can be 
 This is the closest primary-source match to "validate that the value exists in tokens.json," but the
 shape it wants is a flat map of custom-property name to value, not a DTCG token tree with `$value`/`$type`
 nodes and aliasing; a build step (for example, a Style Dictionary CSS-variables build) would have to sit
-between the token source of truth and this rule's `importFrom` input. No widely-used tool was found that
+between the token source of truth and this rule's `importFrom` input. No general-purpose tool was found that
 consumes a DTCG `tokens.json` directly for this check; see Gaps below for one narrow, narrow-scope
 exception.
 
@@ -254,7 +254,7 @@ hosted review UI.
 
 ## Gaps
 
-- **No widely-used tool validates a code-level token reference against a DTCG `tokens.json` directly.**
+- **No general-purpose tool validates a code-level token reference against a DTCG `tokens.json` directly.**
   The nearest mainstream primitive, `csstools/stylelint-value-no-unknown-custom-properties`, needs a flat
   `{ "custom-properties": { "--name": "value" } }` JSON, which is a build artifact (for example, from
   Style Dictionary), not the raw `$value`/`$type`/alias token tree DTCG defines. Whether that build step
