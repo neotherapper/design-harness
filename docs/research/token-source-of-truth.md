@@ -33,7 +33,7 @@ Design token files are plain JSON (`technical-reports/format/file-format.md`). A
 }
 ```
 
-`$value` and an unambiguous `$type` are the only required pieces. `$type` can be set directly on a token or inherited from an ancestor group, and a token with no resolvable type "MUST" be treated as invalid by conforming tools (`types.md`). Groups are simply any object without `$value`; they can carry `$description`, `$type` as a default for children, `$extends`, and `$deprecated` (`groups.md`). A 2025.10 addition lets a group hold a `$root` token so a group can have both a base value and named variants without an ambiguous group/token reference (`groups.md`).
+`$value` and an unambiguous `$type` are the only required pieces. `$type` can be set directly on a token or inherited from an ancestor group, and a token with no resolvable type "MUST" be treated as invalid by conforming tools (`types.md`). Groups are simply any object without `$value`; they can carry `$description`, `$type` as a default for children, `$extends`, and `$deprecated` (`groups.md`). A group can also hold a `$root` token so it has both a base value and named variants without an ambiguous group/token reference (`groups.md`; the source does not say in which version this arrived).
 
 References ("aliases") come in two forms (`aliases.md`):
 
@@ -60,7 +60,7 @@ with a link to `style-dictionary/style-dictionary#1590`. So the tool that turns 
 
 ### What it generates
 
-`docs/src/content/docs/reference/Hooks/Formats/predefined.md` lists Style Dictionary's built-in output formats. Confirmed present: `css/variables` ("Creates a CSS file with variable definitions"), and two TypeScript formats, `typescript/es6-declarations` and `typescript/module-declarations` ("Creates TypeScript declarations for ES6 modules" and "for module"), alongside SCSS, Less, Stylus, several JavaScript module shapes, Android, iOS/Swift, and Compose formats. `styledictionary.com` (fetched 2026-09-03) states the same intent on its homepage: "Export your Design Tokens to any platform, iOS, Android, CSS, JS, HTML..." and calls itself "Forward-compatible with Design Tokens Community Group spec."
+`docs/src/content/docs/reference/Hooks/Formats/predefined.md` lists Style Dictionary's built-in output formats. Confirmed present: `css/variables` ("Creates a CSS file with variable definitions"), and two TypeScript formats, `typescript/es6-declarations` and `typescript/module-declarations` ("Creates TypeScript declarations for ES6 modules" and "for module"), alongside SCSS, Less, Stylus, several JavaScript module shapes, Android, iOS/Swift, and Compose formats. `styledictionary.com` (fetched 2026-09-03) states the same intent on its homepage: "Export your Design Tokens to any platform - iOS, Android, CSS, JS, HTML" and calls itself "Forward-compatible with Design Tokens Community Group spec."
 
 ### How references resolve
 
@@ -75,7 +75,7 @@ The doc lists which formats even support the option (`css/variables`, `scss/vari
 
 ### Figma variables
 
-`help.figma.com/hc/en-us/articles/15339657135383` (fetched 2026-09-03) describes variables as storing "reusable values that can be applied to all kinds of design properties," with color, number, and font property variable types, usable by "[a]nyone with access to a file," and publishable to team libraries only on paid plans.
+`help.figma.com/hc/en-us/articles/15339657135383` (fetched 2026-09-03) describes variables as storing "reusable values that can be applied to all kinds of design properties," usable by "[a]nyone with access to a file," and publishable to team libraries only on paid plans.
 
 `help.figma.com/hc/en-us/articles/15145852043927` (fetched 2026-09-03) documents **Code Syntax**: an optional, per-variable, per-platform alias. "You can create one name per platform, including Web, Android, and iOS... up to three code syntaxes per variable," set by hand: "From the Code syntax section of the Edit variable modal, click Add code syntax... enter a variable name." This is the mechanism meant to make a Figma variable's Dev Mode name match a real code identifier, for example a variable named "Extra Small" in Figma showing as `var(--extra-small)` in a CSS snippet. The same page states only that the syntax "appear[s] in code snippets in Dev Mode when inspecting elements"; nothing in this or any other fetched document says the string is checked against, or generated from, an actual codebase. It is free text a person types once.
 
@@ -89,7 +89,7 @@ Whether an agent actually calls `get_variable_defs` is not guaranteed by the pro
 
 Its fix is to make the prompt more explicit ("Get the variable names and values for this selection"), which is a workflow instruction, not a protocol guarantee. The presence of `get_variable_defs` in the tool list does not by itself mean any given generated snippet used it; that has to be checked after the fact, in the generated code, not assumed from the tool's existence.
 
-`help.figma.com/hc/en-us/articles/32132100833559` (fetched 2026-09-03) describes the server in looser terms: it lets the client "pull in variables, components, and layout data directly into your IDE," and separately states of Code Connect: "Boost output quality by reusing your actual components. Code Connect keeps your generated code consistent with your codebase." Neither fetched Figma page states that the name returned by `get_variable_defs` is guaranteed identical to the identifier used in the codebase; the closest thing to that guarantee is the manually typed Code Syntax field above, and Code Connect's mapping is about components and props, not variable names, as the next section shows.
+`help.figma.com/hc/en-us/articles/32132100833559` (fetched 2026-09-03) describes the server in looser terms: it lets the client "[p]ull in variables, components, and layout data directly into your IDE," and separately states of Code Connect: "Boost output quality by reusing your actual components. Code Connect keeps your generated code consistent with your codebase." Neither fetched Figma page states that the name returned by `get_variable_defs` is guaranteed identical to the identifier used in the codebase; the closest thing to that guarantee is the manually typed Code Syntax field above, and Code Connect's mapping is about components and props, not variable names, as the next section shows.
 
 ### Figma Code Connect
 
@@ -109,6 +109,8 @@ figma.connect(Button, 'https://...', {
   ),
 })
 ```
+
+The example above is reformatted for width and is not byte-exact to the page.
 
 A Code Connect mapping declares which Figma component URL corresponds to which code component, a `props` object translating Figma's design properties (variant names, boolean layer properties, text content) into that component's code props, and an `example` function showing the actual import and usage shape Dev Mode should display. This is a component-and-prop mapping, authored and published by hand and checked in like source code, per the repo's CLI. It does not declare a mapping from Figma variable names to design-token identifiers in code; that is the separate, weaker Code Syntax mechanism described above.
 
@@ -171,6 +173,8 @@ The one artifact that is both machine-readable and lives in the same repository 
 In short, DTCG and Style Dictionary together can produce the comparison target. The Figma-side tools (variables, Code Syntax, Dev Mode MCP, Code Connect) can produce or assist in producing the *source* of that target, but none of them, by themselves, gate a component's publication; they report design intent or translate a file format. Gating is something the harness's own outer-gate guard has to do, by refusing to flip a `Component`'s publish flag until this comparison has run and passed.
 
 ## What I did not check
+
+- Corrected after the 2026-09-03 fidelity review: a version claim about `$root` that no source dated, an invented list of Figma variable types (removed rather than re-sourced), and three quotes that had drifted from their sources by a dash, a case change, and reformatting.
 
 - The Dev Mode MCP server's exact JSON response shape for `get_variable_defs`: field names, whether it returns DTCG-style `$type`/`$value` or a Figma-internal shape. No fetched document shows a sample response body, only a one-line tool description.
 - Whether Tokens Studio's tokens are the same underlying object as native Figma Variables (two-way synced) or a separate system requiring an explicit push/pull. Two guessed doc URLs 404'd; left as not checked rather than dug for further, per the instruction to skip what isn't quickly verifiable.

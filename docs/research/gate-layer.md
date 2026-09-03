@@ -269,8 +269,9 @@ against an untrustworthy input, the identical failure mode ADR-0004 was written 
 
 **Persistence and rehydration.** XState v5 persists an actor's internal state with
 `actor.getPersistedSnapshot()` and restores it with `createActor(machine, { snapshot: restoredState
-}).start()` (stately.ai/docs/persistence, fetched 2026-09-03: "you can restore an actor to a persisted
-state by passing the persisted state into the snapshot option"). Spawned or invoked child actors are
+}).start()` (stately.ai/docs/persistence, fetched 2026-09-03: "You can restore an actor to a persisted
+state by passing the persisted state into the `state` option", while its own code sample on the same
+line uses the `snapshot` key, which is what the sketch above uses). Spawned or invoked child actors are
 restored recursively, but actions do not re-run: "Actions from machine actors will not be re-executed,
 because they are assumed to have been already executed." The docs draw the line zygos's read of
 Temper's journal draws, on the other side of it: "the persisted state represents the internal state of
@@ -292,12 +293,12 @@ and Stateright (exhaustive bounded BFS with counterexamples) levels do.
 - **The formal cascade.** No SMT check, no exhaustive BFS, no deterministic simulation with injected
   faults, no shadow-tested hot swap comparing old and new tables before a live change ships.
 - **Credential-bound principals.** Temper's kernel resolves `agent_type` and `agentTypeVerified`
-  server-side from a hashed Bearer credential; a caller cannot declare a role via a header (ADR-0004:
-  "No credential resolves to Admin on this kernel"). Nothing in XState or cedar-wasm does this; it
+  server-side from a hashed Bearer credential; a caller cannot declare a role via a header (ADR-0004, its own heading:
+  "No credential resolves to `Admin`, so the old publish gate locks itself out"). Nothing in XState or cedar-wasm does this; it
   must be built, and zygos's own history shows it is easy to get wrong even with a working reference,
   since the auth model changed once already between two pins, needing a dedicated ADR.
-- **The self-approval ban.** Temper ADR-0172, observed live (zygos temper spec, Embodiment rows 15 to
-  16), refuses to let the principal that triggered a denied action approve or deny the resulting
+- **The self-approval ban.** Temper ADR-0172, observed live (zygos temper spec, Embodiment row
+  15), refuses to let the principal that triggered a denied action approve or deny the resulting
   pending decision. This is kernel-level protection on one specific workflow, not a general
   "cannot review your own work" rule; it does not itself stop one operator holding all three
   `Component` credentials from drafting, validating, and publishing alone (ADR-0004: "the separation
@@ -332,8 +333,11 @@ temper-cli` on a pinned nightly toolchain, 2 minutes 19 seconds on a laptop; the
 first-party crates, with Docker Compose available for Postgres, a Redis stub, ClickHouse, and OTEL,
 though the zygos run itself used only the embedded libSQL store. `lifecycle: version-changing` is not
 a formality: between the two commit pins zygos tracked (`2f43ece` to `ff0774f`, 18 upstream commits,
-about two weeks), three new recovery mechanisms and one new authorization rule landed upstream, and
-TemperPaw's auth model changed underneath zygos entirely, from header-declared identity to
+about two weeks), one new recovery mechanism (install-time rollback, ADR-0173) and one new
+authorization rule (the self-approval ban, ADR-0172) landed upstream, bringing the recovery points
+the zygos spec counts to three, and a durability caveat on non-transition writes was recorded
+(ADR-0157). Separately, on the TemperPaw checkout zygos runs, for which the cited sources give no
+dates, the auth model changed underneath zygos entirely, from header-declared identity to
 credential-bound identity (ADR-0004), forcing zygos to discard a 147-file mechanical pin bump, rewrite
 `harness_spec.cedar`, and reissue all three operational keys. That is the largest churn event in the
 material read, and it hit an already-running pipeline, not a paper design.
@@ -366,6 +370,8 @@ are process guarantees, not state-count guarantees, and they are the actual case
 "the state space is too big to check by hand," which for four states and three flags is not true.
 
 ## What I did not check
+
+- Corrected after the 2026-09-03 fidelity review: one quote attributed to ADR-0004 was a splice of its heading and an unrelated phrase (replaced with the heading verbatim); the self-approval ban cited two Embodiment rows where only one supports it; the churn passage counted three new recovery mechanisms where the spec records one new one and a total of three, and tied the auth rewrite to a two-week window the sources do not date; one XState quote substituted `snapshot` for the source's `state`.
 
 - Neither sketch above was built, loaded into a real Temper server, or run as an actual XState v5
   program; both are sketches by analogy, labeled as such throughout.
