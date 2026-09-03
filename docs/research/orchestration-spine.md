@@ -41,7 +41,7 @@ condition becomes true" and "Use `.dowhile()` to run a step repeatedly while a c
 A validator step can be wrapped in `.dountil(validatorStep, ({ inputData }) => inputData.passed)` so the
 workflow does not advance past it until the validator's own output says so. To prevent an infinite loop
 the docs say: "Use `iterationCount` to limit how many times a loop runs. If the count exceeds your
-threshold, throw an error to fail the step." Throwing inside a step is therefore the hard-fail path,
+threshold, throw an error to fail the step and stop the workflow." Throwing inside a step is therefore the hard-fail path,
 and workflow run results carry a `status` of `success`, `failed`, `suspended`, `tripwire`, or `paused`,
 with a `failed` result carrying an `error` field.
 
@@ -55,20 +55,23 @@ explicit and callable from outside the workflow process: `run.resume({ step: ste
 or by step ID string, and "If only one step is suspended, you can omit the step argument entirely."
 
 **Durable agents.** This is a distinct feature from workflow suspend/resume, documented at
-mastra.ai/docs/harness/durable-agents (fetched 2026-09-03). A durable agent "embeds the agentic loop
-inside a workflow": "The workflow runs the same loop as `Agent.stream()` but each step can be memoized
-and replayed." Streaming survives disconnects via a cache and pub/sub layer: "The loop publishes chunks
-to a PubSub topic keyed by the run ID... An optional cache... stores published events so that a late
-subscriber can catch up," and "The same client can reconnect by calling `observe()` with the `runId`."
-Crash recovery is opt-in, not automatic: "durable agent runs are excluded from the generic boot-time
-restart of active workflow runs," and enabling `recovery.durableAgents: 'auto'` "discovers every
-registered durable agent with runs stuck in `running` status and re-drives them from the last persisted
-snapshot," with the explicit caveat "Make sure your tools are idempotent before enabling automatic
-recovery" because recovery re-executes tool calls. The repository's `examples/durable-agents/README.md`
-(commit `4d26df887baa9bb7b898b557e697a7082dbc92d1`) confirms three concrete implementations:
-`createDurableAgent` (Redis-backed resumable stream, no separate durable-execution engine),
-`createEventedAgent` (adds the workflow engine, non-blocking start), and `createInngestAgent` (runs the
-agentic loop on Inngest so it survives process restarts).
+mastra.ai/docs/harness/durable-agents (fetched 2026-09-03; see also the page's own beta admonition under
+"API stability" below). Per the page: "A durable agent wraps a regular `Agent` so the agentic loop runs
+inside a workflow." Elaborating: "The workflow runs the same loop as `Agent.stream()` but each step can
+be memoized and replayed." Streaming survives disconnects
+via a cache and pub/sub layer: "The loop publishes chunks to a PubSub topic keyed by the run ID... An
+optional cache... stores published events so that a late subscriber can catch up," and "The same client
+can reconnect by calling `observe()` with the `runId`." Crash recovery is opt-in, not automatic: "durable
+agent runs are excluded from the generic boot-time restart of active workflow runs," and enabling
+`recovery.durableAgents: 'auto'` "discovers every registered durable agent with runs stuck in `running`
+status and re-drives them from the last persisted snapshot," with the explicit caveat "Make sure your
+tools are idempotent before enabling automatic recovery" because recovery re-executes tool calls. The
+docs page itself states the non-blocking property of `createEventedAgent`: "The workflow starts in the
+background without blocking the caller." The repository's `examples/durable-agents/README.md` (commit
+`4d26df887baa9bb7b898b557e697a7082dbc92d1`) confirms three concrete implementations: `createDurableAgent`
+(Redis-backed resumable stream, no separate durable-execution engine), `createEventedAgent` (adds the
+workflow engine), and `createInngestAgent` (runs the agentic loop on Inngest so it survives process
+restarts).
 
 **Evals and scorers.** Per docs/scorers/overview (fetched 2026-09-03): "Scorers are automated tests that
 evaluate Agents outputs using model-graded, rule-based, and statistical methods," and they "return
@@ -85,7 +88,7 @@ framework, but the only sentence about execution effect is the same non-blocking
 Protocol (MCP), an open standard for connecting AI agents to external tools and resources." `MCPClient`
 connects to external MCP servers and lists their tools for an agent; `MCPServer` does the reverse:
 "Use `MCPServer` to expose Mastra agents, tools, workflows, prompts, and resources to other
-MCP-compatible systems." The docs also mention "tool approval workflows" for MCP-sourced tools, but the
+MCP-compatible systems." The docs also carry a "Tool approval" heading for MCP-sourced tools, but the
 fetched page did not give the approval mechanism's exact semantics (deny vs. ask vs. log), so that is
 listed under "What I did not check."
 
@@ -93,7 +96,9 @@ listed under "What I did not check."
 (`packages/core/package.json`), and the root workspace package is `mastra-turbo@0.1.11`
 (`package.json`). No stability/versioning statement was found in the root `README.md` beyond the
 Apache-2.0 / Enterprise (`ee/`) dual-license split. The alpha pre-release tag on `@mastra/core` is the
-project's own signal that the core package's API is not yet stable.
+project's own signal that the core package's API is not yet stable, and the durable-agents feature
+specifically carries its own beta admonition on top of that: "Breaking changes may occur without a major
+version bump until the API is stable."
 
 ## Claude Agent SDK
 
@@ -117,15 +122,17 @@ over `allow`. If any hook returns `deny`, the operation is blocked regardless of
 narrower hook (`PreModelSwitch`) "can block" a requested model switch before it happens.
 
 **Where the deny sits in the full evaluation order.** The permissions doc lays out a six-step flow:
-hooks, deny rules, ask rules, permission mode, allow rules, `canUseTool` callback. Hooks run first and
-their deny is unconditional: "A hook can deny the call outright or pass it on... If any hook returns
-`deny`, the operation is blocked regardless of other hooks," and this applies "even in `bypassPermissions`
-mode." The bypass-mode section repeats this from the other direction: "Hooks still execute and can
-block operations if needed," and lists hooks alongside deny rules and explicit ask rules as the three
-things still evaluated before the bypass-everything step. A `PreToolUse` hook that returns `allow` does
-not skip the deny/ask rules below it, and a hook allow cannot override a deny on a "critical path" `rm`/
-`rmdir`. This makes `PreToolUse` the correct place for a design-harness gate that must hold regardless of
-whatever permission mode the calling session happens to be in.
+hooks, deny rules, ask rules, permission mode, allow rules, `canUseTool` callback. Hooks run first, per
+permissions.md: "A hook can deny the call outright or pass it on. A hook that returns `allow` does not
+skip the deny and ask rules below; those are evaluated regardless of the hook result." The priority rule
+that makes a deny unconditional is stated separately, in hooks.md (already quoted above): "If any hook
+returns `deny`, the operation is blocked regardless of other hooks." Permissions.md's own warning box
+confirms this holds under bypass mode: "hooks run before every other step, and a hook deny applies even
+in `bypassPermissions` mode." The bypass-mode section repeats this from the other direction: "Hooks still
+execute and can block operations if needed," and lists hooks alongside deny rules and explicit ask rules
+as the three things still evaluated before the bypass-everything step. A hook allow also cannot override
+a deny on a "critical path" `rm`/`rmdir`. This makes `PreToolUse` the correct place for a design-harness
+gate that must hold regardless of whatever permission mode the calling session happens to be in.
 
 **Subagents.** Subagents are "separate agent instances that your main agent can spawn to handle focused
 subtasks," created programmatically via the `agents` option, as markdown files under `.claude/agents/`,
@@ -175,13 +182,21 @@ pydantic/pydantic-ai repository pinned to `b1ffb6e8d4e7f6e3fbf0753d78ebc35b93386
 pydantic/pydantic-ai-harness repository pinned to `913a175ec0fe4f86686509b1ae8b1619fb5a13a0`.
 
 **Two packages, one name overlap to watch.** "Harness" here names a specific, separate PyPI package,
-`pydantic-ai-harness`, not a mode of the core `pydantic-ai` package. Per the harness overview page: "The
-core `pydantic-ai` package provides a lightweight harness with basic agent functionality. The
-`pydantic-ai-harness` package extends this with 50+ additional capabilities for complex, long-running
-tasks," and "The boundary between the packages is mechanical, not a maturity tier." The classifiers in
-each repository's `pyproject.toml` at the pinned commits confirm a real maturity difference regardless:
-core `pydantic-ai` and `pydantic-ai-slim` both declare `Development Status :: 5 - Production/Stable`;
-`pydantic-ai-harness` declares `Development Status :: 3 - Alpha`.
+`pydantic-ai-harness`, not a mode of the core `pydantic-ai` package. Per the harness overview page:
+"'Harness' is the field's term for everything around the model that turns it into an agent: the loop,
+the tools, the context management... The boundary between the packages is mechanical, not a maturity
+tier: core ships the capabilities that require model or framework support (provider-native tools like
+image generation, provider APIs like compaction, deep loop integration like tool search, and fundamentals
+like thinking, MCP, and web search) and the Harness ships everything else, as a separate package so
+capabilities can iterate at the speed the field moves while Pydantic AI itself stays lean." The page's own
+capability count is narrower than the combined total it also states: the harness section's intro says
+"There are 30+ of them," referring to the capabilities Harness itself documents, while the page's
+capabilities table separately says "50+ in all," describing capabilities that "Some come with
+`pydantic-ai` itself, the rest with this package." So 50+ is core and Harness combined, not 50+
+contributed by Harness alone. The classifiers in each repository's `pyproject.toml` at the pinned commits
+confirm a real maturity difference regardless: core `pydantic-ai` and `pydantic-ai-slim` both declare
+`Development Status :: 5 - Production/Stable`; `pydantic-ai-harness` declares `Development Status :: 3 -
+Alpha`.
 
 **The capability primitive.** A capability is a single object passed into `Agent(..., capabilities=[...])`
 that can bundle "Tools -- via toolsets or native tools, Lifecycle hooks -- intercept and modify model
@@ -213,11 +228,14 @@ verdict from an `OutputGuardrail` stops that output from reaching the caller as 
 
 **Core retries: also a gate, on a fixed budget.** Independent of the harness package, core `pydantic-ai`
 has `@agent.output_validator`-registered functions that can raise `ModelRetry`. Each raise "consumes one
-unit of the run's output retry budget"; the docs state "The default retry count is 1 but can be altered
-for the entire agent... a specific tool... or outputs." When the budget is exhausted, "the run raises
-`UnexpectedModelBehavior` with message `'Exceeded maximum output retries (N)'`" -- an unhandled exception
-that ends the run rather than returning an unvalidated result. Validation errors from tool-parameter
-parsing and from structured-output parsing both funnel through this same retry-then-raise mechanism.
+unit of the run's output retry budget"; the docs state "The budget defaults to `1` and can be set on the
+agent with `AgentRetries` via `Agent(retries={'output': N})`, on a single run via
+`agent.run(retries={'output': N})`, or per output tool via `ToolOutput(max_retries=N)`." When the budget is
+exhausted, the source at the pinned commit (`pydantic_ai_slim/pydantic_ai/_agent_graph.py`) raises
+`UnexpectedModelBehavior` with the message `f'Exceeded maximum output retries ({max_output_retries})'` --
+an unhandled exception that ends the run rather than returning an unvalidated result; this exact message
+was not found on either fetched docs page, only in source. Validation errors from tool-parameter parsing
+and from structured-output parsing both funnel through this same retry-then-raise mechanism.
 
 **Durable execution: split into two unrelated things.** Core `pydantic-ai` documents "durable execution"
 as an optional capability layer, not core behavior: "these integrations are capabilities you attach to
@@ -241,10 +259,14 @@ This is listed under "What I did not check" below since a dedicated evals/observ
 
 **API stability.** Core `pydantic-ai` / `pydantic-ai-slim`: `Development Status :: 5 - Production/Stable`
 in both `pyproject.toml` files at the pinned commit. `pydantic-ai-harness`: `Development Status :: 3 -
-Alpha`, and its own docs state the consequence in the project's words: "While Pydantic AI Harness is on
-0.x releases, the API may change between minor releases... These capabilities are tested end-to-end and
-meant for production use, but their APIs may still move between minor releases (0.1 -> 0.2): renamed
-parameters, changed defaults, restructured APIs, always with deprecation warnings where practical."
+Alpha`, and its own docs state the consequence in the project's words, across two documents. The
+`step_persistence/README.md` file puts it this way: "While Pydantic AI Harness is on 0.x releases, the API
+may change between minor releases; when it does, deprecation warnings and release-note migration guidance
+tell you (or your agent) exactly how to upgrade." The harness overview page's own "Version policy" section
+states the point more fully: "Pydantic AI Harness uses 0.x versioning, and that's a statement about API
+stability, not maturity: these capabilities are tested end-to-end and meant for production use, but their
+APIs may still move between minor releases (0.1 -> 0.2): renamed parameters, changed defaults, restructured
+APIs, always with deprecation warnings where practical."
 
 ## Comparison table
 
@@ -296,9 +318,10 @@ This file makes no recommendation between the three frameworks.
   `pyproject.toml`; pydantic/pydantic-ai-harness `pyproject.toml`, `guardrails/_exceptions.py`,
   `guardrails/_shared.py` (first ~60 lines), `step_persistence/README.md` (first ~80 lines);
   pydantic/pydantic-ai `pydantic_ai_slim/pyproject.toml` and root `pyproject.toml` (classifier section
-  only).
+  only); pydantic/pydantic-ai `pydantic_ai_slim/pydantic_ai/_agent_graph.py` (grepped for the
+  `UnexpectedModelBehavior` retry-exhaustion message, not read end to end).
 - Not checked at all: Mastra Studio and its playground UI; `examples/agent-builder` and
-  `examples/sandbox-deployer`; the exact semantics of MCP "tool approval workflows" mentioned in passing
+  `examples/sandbox-deployer`; the exact semantics of the "Tool approval" mechanism mentioned in passing
   on the MCP overview page; Mastra's `mastra.ai/reference/agents/durable-agent` API reference page (only
   surfaced via search, not fetched); the Claude Agent SDK's Python-specific and TypeScript-specific
   full API reference pages (`/agent-sdk/python`, `/agent-sdk/typescript`) beyond what the hooks/permissions/
@@ -313,6 +336,16 @@ This file makes no recommendation between the three frameworks.
   describes two separate PyPI packages (`pydantic-ai` and `pydantic-ai-harness`) with a "mechanical, not
   maturity" boundary, which is a materially different claim from a single package with two internal
   layers. This file uses the primary-source framing, not the map's.
+- Corrected after the 2026-09-03 fidelity review: replaced a fabricated composite quote about
+  `pydantic-ai-harness`'s capability count with the harness overview page's actual wording ("30+" is
+  Harness's own count, "50+ in all" is core and Harness combined); split two quotes that had spliced
+  hooks.md and permissions.md, and step_persistence/README.md and the harness docs page's Version policy
+  section, into separately attributed quotes; restored a dropped "and stop the workflow" clause and a
+  dropped "workflows" mismatch on the MCP "Tool approval" heading; replaced a paraphrase presented as a
+  quote for the durable-agent definition and for the output-retry-budget breakdown with the actual
+  sentences; attributed the `UnexpectedModelBehavior` message to source code (`_agent_graph.py`, now
+  listed in Sources) instead of "the docs"; moved the `createEventedAgent` non-blocking-start attribution
+  to the durable-agents docs page; and added the durable-agents page's own beta admonition.
 
 ## Sources
 
@@ -347,4 +380,5 @@ This file makes no recommendation between the three frameworks.
 | pydantic-ai-harness repo: guardrails/_shared.py | https://raw.githubusercontent.com/pydantic/pydantic-ai-harness/913a175ec0fe4f86686509b1ae8b1619fb5a13a0/pydantic_ai_harness/guardrails/_shared.py | part |
 | pydantic-ai-harness repo: step_persistence/README.md | https://raw.githubusercontent.com/pydantic/pydantic-ai-harness/913a175ec0fe4f86686509b1ae8b1619fb5a13a0/pydantic_ai_harness/step_persistence/README.md | part |
 | pydantic-ai repo: pydantic_ai_slim/pyproject.toml | https://raw.githubusercontent.com/pydantic/pydantic-ai/b1ffb6e8d4e7f6e3fbf0753d78ebc35b93386472/pydantic_ai_slim/pyproject.toml | part |
+| pydantic-ai repo: pydantic_ai_slim/pydantic_ai/_agent_graph.py | https://raw.githubusercontent.com/pydantic/pydantic-ai/b1ffb6e8d4e7f6e3fbf0753d78ebc35b93386472/pydantic_ai_slim/pydantic_ai/_agent_graph.py | part |
 | pydantic-ai repo: root pyproject.toml | https://raw.githubusercontent.com/pydantic/pydantic-ai/b1ffb6e8d4e7f6e3fbf0753d78ebc35b93386472/pyproject.toml | part |

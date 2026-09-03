@@ -25,9 +25,10 @@ they are an order of magnitude slower than `tsc`/`eslint`. Visual regression is 
 structurally not just deterministic-vs-heuristic: Chromatic's pixel diff is deterministic, but its
 gate is a human accept/deny of an intentional change, wired through a required PR status check, not
 purely through the CLI exit code; Playwright's `toHaveScreenshot` is the same shape at unit scale, with
-committed baseline images standing in for the human-reviewed baseline. No primary source found here
-validates that a token reference in code actually resolves to an entry in a DTCG-format `tokens.json`;
-the closest tool needs a pre-flattened custom-properties JSON, not the raw token tree.
+committed baseline images standing in for the human-reviewed baseline. No widely-used tool found here
+validates that a token reference in code actually resolves to an entry in a DTCG-format `tokens.json`
+directly against the raw token tree; the closest mainstream tool needs a pre-flattened custom-properties
+JSON instead. One narrow, narrow-scope exception exists (an obscure Rust linter's rule; see Gaps).
 
 ## Token conformance (CSS and TSX)
 
@@ -59,8 +60,9 @@ matching `--brand-blue` declaration anywhere in scope. Custom properties can be 
 This is the closest primary-source match to "validate that the value exists in tokens.json," but the
 shape it wants is a flat map of custom-property name to value, not a DTCG token tree with `$value`/`$type`
 nodes and aliasing; a build step (for example, a Style Dictionary CSS-variables build) would have to sit
-between the token source of truth and this rule's `importFrom` input. No tool was found that consumes a
-DTCG `tokens.json` directly for this check.
+between the token source of truth and this rule's `importFrom` input. No widely-used tool was found that
+consumes a DTCG `tokens.json` directly for this check; see Gaps below for one narrow, narrow-scope
+exception.
 
 **CSS-in-JS is a soft spot.** stylelint's `customSyntax` option (`docs/user-guide/options.md`, same
 commit as above) lets stylelint parse styled-components/emotion template literals via a syntax module,
@@ -72,9 +74,10 @@ syntax module.
 **TSX inline styles and Tailwind classnames.** `eslint-plugin-tailwindcss` (commit
 `1ace2c54aa7c7d4b9590ffe02ebabdfe66bc2382`, default branch `v4`) ships `no-arbitrary-value`, described
 as forbidding classnames like `w-[20rem]` in favor of a defined Tailwind theme value. Its own docs
-header states it is "disabled in the recommended config." The companion `no-custom-classname` rule
-flags any classname not recognized by Tailwind, and its docs header states it "warns in the recommended
-config" (so it reports, non-blocking, out of the box; a project has to raise it to `"error"` to gate).
+header, an auto-generated badge line, states in full: "🚫 This rule is _disabled_ in the ✅ `recommended`
+config." The companion `no-custom-classname` rule flags any classname not recognized by Tailwind, and its
+docs header states: "⚠️ This rule _warns_ in the ✅ `recommended` config" (so it reports, non-blocking, out
+of the box; a project has to raise it to `"error"` to gate).
 Both are deterministic string/AST matching against the resolved Tailwind config, not heuristics.
 
 For inline `style={{ }}` objects and non-Tailwind CSS-in-JS, `@metamask/eslint-plugin-design-tokens`
@@ -106,18 +109,19 @@ a real (or real-enough) browser environment to be trustworthy.
 **Storybook's a11y addon** wraps `axe-core` and runs it against each story's rendered output
 (`docs/writing-tests/accessibility-testing.mdx`, Storybook commit `4bd806b927f82b14057e0c143b064b89663f771b`).
 By itself, opening a story runs the audit and shows results in an addon panel: this is REPORT only,
-nothing fails. The doc's own test-behavior table is the key GATE/REPORT switch:
+nothing fails. The doc's own test-behavior table, quoted verbatim, is the key GATE/REPORT switch:
 
-| `parameters.a11y.test` value | Behavior |
+| Value | Description |
 |---|---|
-| `'off'` | Do not run accessibility tests (manual check only via the panel) |
-| `'todo'` | Run tests; violations return a warning in the Storybook UI |
-| `'error'` | Run tests; violations return a failing test in the Storybook UI **and CLI/CI** |
+| `'off'` | Do not run accessibility tests (you can still manually verify via the addon panel) |
+| `'todo'` | Run accessibility tests; violations return a warning in the Storybook UI |
+| `'error'` | Run accessibility tests; violations return a failing test in the Storybook UI and CLI/CI |
 
-The docs state directly: "Accessibility tests will only produce errors in CI if you have set
-`parameters.a11y.test` to `'error'`. If you set it to `'todo'`, there will be no accessibility-related
-errors, warnings, or output in CI." So the gate is opt-in per story/component/project, not a property of
-installing the addon. When it is set to `'error'`, the tests execute through either the Vitest addon
+The docs state directly, in a warning callout: "Accessibility tests will only produce errors in CI if you
+have set `parameters.a11y.test` to `'error'`. If you set it to `'todo'`, there will be no
+accessibility-related errors, warnings, or output in CI, but you can still see the results as warnings in
+the Storybook UI when you run the tests locally." So the gate is opt-in per story/component/project, not a
+property of installing the addon. When it is set to `'error'`, the tests execute through either the Vitest addon
 (`vitest` CLI, standard non-zero exit on failure) or the Jest/Playwright-based test-runner, both of
 which need a real browser (Playwright's Chromium, launched by Vitest browser mode, or by
 `jest-playwright` under the test-runner), so this is not a "seconds, no browser" inner-loop check; it is
@@ -128,7 +132,8 @@ closer to an integration-test-speed step.
 **TypeScript (`tsc`).** Pinned to the `v7.0.2` tag (commit `1e4744d68260a7cb91b62b12edc3f6a2187faaf1`,
 the last tag whose source tree still has the classic TypeScript-implemented compiler under `src/`; the
 `main` branch has since become a from-scratch Go reimplementation and was not used for this claim), the
-compiler's own `ExitStatus` enum in `src/compiler/types.ts` is:
+compiler's own `ExitStatus` enum in `src/compiler/types.ts` is, excerpted to the two members this claim
+turns on:
 
 ```
 Success = 0
@@ -136,7 +141,10 @@ DiagnosticsPresent_OutputsSkipped = 1
 DiagnosticsPresent_OutputsGenerated = 2
 ```
 
-Both `1` and `2` are non-zero, so `tsc` gates on type errors by exit code even in its default
+The full enum has two further members not needed for this claim: `InvalidProject_OutputsSkipped = 3` (a
+build skipped because the referenced project is invalid) and `ProjectReferenceCycle_OutputsSkipped = 4` (a
+build skipped because project references form a cycle). Both `1` and `2` are non-zero, so `tsc` gates on
+type errors by exit code even in its default
 configuration, where it emits JS output alongside the errors (`OutputsGenerated`, code `2`); the
 `--noEmitOnError`/`noEmitOnError` compiler option changes only whether files are written, not whether
 the process exits non-zero. This is fully deterministic given a fixed `tsconfig.json` and source tree,
@@ -246,12 +254,20 @@ hosted review UI.
 
 ## Gaps
 
-- **No tool validates a code-level token reference against a DTCG `tokens.json` directly.** The nearest
-  primitive, `csstools/stylelint-value-no-unknown-custom-properties`, needs a flat
+- **No widely-used tool validates a code-level token reference against a DTCG `tokens.json` directly.**
+  The nearest mainstream primitive, `csstools/stylelint-value-no-unknown-custom-properties`, needs a flat
   `{ "custom-properties": { "--name": "value" } }` JSON, which is a build artifact (for example, from
   Style Dictionary), not the raw `$value`/`$type`/alias token tree DTCG defines. Whether that build step
   keeps the flattened list honestly in sync with the token source is outside what any linter checked here
-  verifies; the harness would have to guarantee that separately.
+  verifies; the harness would have to guarantee that separately. A found-but-narrow counterexample: `ds-lint`
+  (a Rust CLI on crates.io; repository at `gitlab.com/neilfitzgerald1972/ds-lint`, pinned to commit
+  `efcd33af98b1b1db49a5492929962c141b1a1fa4`), rule `DS020: no-deprecated-tokens`
+  (`docs/rules/DS020-no-deprecated-tokens.md` at that commit), does parse a native DTCG token tree
+  (tokens carrying `$type`/`$value`/`$deprecated`) and flags a `var(--x)` code reference against a token
+  marked `$deprecated` in that tree. Its sibling rules (`DS001`-`DS005`, hardcoded-value checks) do not
+  perform the same DTCG cross-check, and the project is small and single-maintainer, so this does not
+  overturn the practical conclusion that no established, widely-adopted tool does this end to end; it is
+  a real, narrowly-scoped exception, not a mature one.
 - **Judgment items have no deterministic validator, by design.** "Matches the Figma comp," "follows the
   spacing rhythm," and similar are exactly the kind of claim none of the tools above attempt: axe-core
   and jsx-a11y check rules, not intent; Chromatic and `toHaveScreenshot` catch that *something* changed
@@ -290,12 +306,24 @@ hosted review UI.
 - Did not investigate Style Dictionary or other DTCG build tooling in depth; that is explicitly the scope
   of `docs/research/token-source-of-truth.md` (target 3 in this repo's research plan), not this file.
 - Did not check for any private, enterprise, or paid design-system linting product beyond what surfaced
-  in open GitHub search; the "no tool found" conclusions above are bounded by what a public GitHub/docs
-  search returned on 2026-09-03.
+  in open GitHub/GitLab search; the "no general-purpose tool found" conclusions above are bounded by what a
+  public search returned on 2026-09-03 (that search is what surfaced `ds-lint`, cited in Gaps as a
+  narrow counterexample).
 - Did not check ESLint's or stylelint's behavior across major version boundaries; all claims are pinned
   to the specific commits/tags cited and may not hold for older or future major versions.
 - Did not check whether Prettier's formatting rules can conflict with or mask a token-literal violation
   (for example, reformatting a value in a way that changes whether a regex-based rule matches it).
+- Did not check `ds-lint`'s actual usage in any real project, its other rules (`DS001`-`DS005`, `DS010`-
+  `DS012`, `HTML001`-`HTML002`) beyond confirming they don't perform the same DTCG cross-check by reading
+  their doc headers, or its Rust source directly; only the `DS020` rule doc and repository metadata (via
+  the GitLab API) at the pinned commit were read.
+- Corrected after the 2026-09-03 fidelity review: reproduced the Storybook `parameters.a11y.test` table
+  and CI-errors quote verbatim (previously reworded and truncated without an ellipsis); marked the `tsc`
+  `ExitStatus` code block as an excerpt and listed its two omitted members; quoted the `eslint-plugin-tailwindcss`
+  rule-header badges in full instead of paraphrasing them as direct quotes; removed the `TypeScript`
+  `main`-branch source row (unpinned to a commit and uncited in prose); and softened the "no tool found"
+  DTCG claims to "no general-purpose tool found," adding `ds-lint`'s `DS020` rule as a real, narrowly-scoped
+  counterexample with its own pinned commit.
 
 ## Sources
 
@@ -320,7 +348,7 @@ hosted review UI.
 | Storybook visual-testing doc | https://raw.githubusercontent.com/storybookjs/storybook/4bd806b927f82b14057e0c143b064b89663f771b/docs/writing-tests/visual-testing.mdx | full |
 | ESLint command-line-interface doc | https://raw.githubusercontent.com/eslint/eslint/1696682791661c13167eb905da2f38d1b8f4a3bf/docs/src/use/command-line-interface.md | part |
 | TypeScript `ExitStatus` enum (source, tag v7.0.2) | https://raw.githubusercontent.com/microsoft/TypeScript/1e4744d68260a7cb91b62b12edc3f6a2187faaf1/src/compiler/types.ts | part |
-| TypeScript `executeCommandLine.ts` (exit call sites) | https://raw.githubusercontent.com/microsoft/TypeScript/main/tsc/testdata/fixtures/compiler/executeCommandLine.ts | part |
 | Prettier CLI doc (exit codes) | https://raw.githubusercontent.com/prettier/prettier/338310e438be8bac2efcb1db4da313c046d45eef/docs/cli.md | part |
 | Chromatic CLI doc (exit codes) | https://www.chromatic.com/docs/cli/ (fetched 2026-09-03) | part |
 | Playwright visual comparisons doc | https://playwright.dev/docs/test-snapshots (fetched 2026-09-03) | full |
+| ds-lint `DS020: no-deprecated-tokens` rule doc | https://gitlab.com/neilfitzgerald1972/ds-lint/-/raw/efcd33af98b1b1db49a5492929962c141b1a1fa4/docs/rules/DS020-no-deprecated-tokens.md | full |
