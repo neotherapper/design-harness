@@ -82,8 +82,10 @@ in the downloaded page text:
   with the implementing mechanism unverified.
 
 Everything else that reads as a rule is a prompt-layer instruction, with three tiers of durability
-the author names explicitly: workarounds.md (an unvalidated observation log, "up to agent to read
-and apply"), memory (standing instructions loaded into every agent's context, that an agent can
+the author names explicitly: workarounds.md ("the raw observation log," 23 numbered gotchas each
+structured as "what happened, why it matters, what rule prevents it," and, in the post's own
+second description of the same tier, "the living document – observed but not yet promoted"),
+memory (standing instructions loaded into every agent's context, that an agent can
 still ignore), and skills (agent-specific instructions the author calls "the hardened layer" since
 they load into that agent's own system prompt before it can act, for example "MANDATORY: call
 `mcp__ids__get_tokens` before writing any token reference"). This tracks how likely a rule is to be
@@ -121,7 +123,8 @@ instruction to the model about how to write its own output, not a check anything
 One place comes closer to a mechanism: `scripts/lint_design_md.py`, a stdlib-only script the
 SKILL.md instructs the agent to run against its own output. "After generating a design.md, ALWAYS
 run the lint script before delivering," checking frontmatter completeness, that token references
-resolve, that components declared in YAML have prose entries, and that Do's/Don'ts is non-empty.
+resolve, that components declared in YAML have prose entries, and that Section 6 Do's/Don'ts isn't
+empty without an abstain justification.
 This is a deterministic, scriptable check: if a real orchestrator ran it and refused to hand the
 file to a human on failure, it would be enforcement. As written, invoking it is itself an
 instruction ("ALWAYS run") the agent could skip, and nothing outside the conversation calls the
@@ -163,7 +166,10 @@ registry, though only one file was read in full.
 Source: github.com/arni-labs/katagami, commit `5366ab8bbe7012a9768a37a12f869d7c9a0a3681` (default
 branch is `master`, not `main`). `README.md` read in full; `design_language.ioa.toml` read directly
 for the guard definitions (primary source for the mechanism claim, not the README's paraphrase);
-`.agents/behaviors/review-agent/BEHAVIOR.md` read in part for how the review role is defined.
+`.agents/behaviors/review-agent/BEHAVIOR.md` read in part for how the review role is defined; and,
+to trace who actually sets `quality_review_passed`, `design_language.cedar`, `review_agent.ioa.toml`,
+`human_curator.ioa.toml`, `curation_job.ioa.toml`, ADR-0014, and part of the WASM finalizer's source,
+all read directly and cited in place below.
 
 Katagami is a library of complete design languages (philosophy, tokens, rules, layout, guidance,
 plus a rendered embodiment of about 15 canonical UI elements), built on Temper, described in the
@@ -190,7 +196,7 @@ guard = [
       has_default_art_style ...
   { type = "cross_entity_state", entity_type = "File", entity_id_source = "embodiment_file_id",
     required_status = ["Ready", "Locked"] },
-  ... four more File-readiness checks and one ArtStyle-status check ...
+  ... seven more File-readiness checks and one ArtStyle-status check ...
 ]
 ```
 
@@ -206,20 +212,60 @@ The `Publish` action (`UnderReview -> Published`) repeats the same completeness 
 more: `is_true, quality_review_passed` and `is_true, has_published_assets`. `quality_review_passed`
 is a boolean the guard trusts as an input; the guard does not evaluate quality itself.
 
-### The review-quality job: enforced to happen, not enforced to be right
+### Two quality mechanisms, not one: who actually sets `quality_review_passed`
 
-Who sets `quality_review_passed` is a separate agent job, described in the README's job table as
-`quality_review`, skill `review-quality`, "Reviews and fixes embodiment against spec," and, in more
-procedural detail, in `.agents/behaviors/review-agent/BEHAVIOR.md`: a reviewer that must record which
-submission it is reviewing, examine artifacts directly rather than their metadata, record findings
-with location and severity, and rule exactly once (pass, revise, or reject), running under its own
-credential, "never a contributor's," per the file's "Never rule on your own work" section: "a
-principal that authored the submission MUST NOT record findings or a verdict on it." This is
-judgment, carried out by prose instructions, with no deterministic check that the verdict is correct.
-What is structural is that the separation of roles is real: the reviewer's verdict is what the
-`Publish` guard reads, and nothing else can set `quality_review_passed` to true. So the review's
-occurrence and authority to gate publish are enforced; its correctness is not. This is the
-"recover, not prevent" half of Axis A, resting on role separation rather than a truth check.
+The README's job table names a `quality_review` job, skill `review-quality`, "Reviews and fixes
+embodiment against spec." Reading that skill directly
+(`katagami-curation/agents/curator/skills/review-quality/SKILL.md`) shows it is a skill of the
+**curator agent**, the same agent type whose other skills include `synthesize-language` (content
+generation), not an independent reviewer. The job is created automatically per `CurationDirection`
+(its own "Process" section: "A quality_review job is now created per CurationDirection ... by the
+`direction_synthesized_creates_review_job` trigger"), and the curator both evaluates and repairs the
+language's artifacts in the same pass before completing the job.
+
+This is a different mechanism from `.agents/behaviors/review-agent/BEHAVIOR.md`, which describes a
+separate I/O-automaton actor, `ReviewAgent` (`katagami-curation/specs/review_agent.ioa.toml`, read
+directly): a reviewer that records which submission it is reviewing, examines artifacts directly,
+records findings, and rules exactly once (pass, revise, or reject) under its own credential, "never
+a contributor's," per "Never rule on your own work": "a principal that authored the submission MUST
+NOT record findings or a verdict on it." But `review_agent.ioa.toml`'s own header states plainly
+what that verdict actually gates: "HumanCurator.Publish is guarded on `cross_entity_state` requiring
+this entity to be in `VerdictRecorded`," not `DesignLanguage.Publish`, and the `RecordVerdict`
+action's own hint underlines it: "Recording a verdict is what unlocks the human publish path; it is
+not itself a publish." `HumanCurator.Publish` (`katagami-curation/specs/human_curator.ioa.toml`,
+read directly) is an action on a separate role-tracking entity, and its hint says outright: "Cedar
+keeps this action off every agent principal; the artifact-side Publish stays governed by the
+existing commons policies, which this spec neither restates nor relaxes."
+
+Who can actually call `DesignLanguage.MarkQualityPassed` is answered by
+`katagami-commons/policies/design_language.cedar` (read directly): it restricts `MarkQualityPassed`
+(bundled with `Publish`, `Revise`, `Archive`, and others) to `System`, `Admin`, a principal whose
+`agent_type` is `operator`, `curation-service`, `wasm-module`, or `service:wasm-runtime`, or a human
+`Customer` with role `owner` or `curator`; there is no `ReviewAgent` principal type in this
+allowlist. Tracing who exercises that permission: `CurationJob.CompleteQualityReview`
+(`katagami-curation/specs/curation_job.ioa.toml`, read directly) carries no guard referencing
+`ReviewAgent` or its verdict; its effect is a `wasm` trigger, `finalize_spawned_session`. That
+module's own source (`katagami-curation/wasm/finalize_spawned_session/src/lib.rs`, function
+`verify_quality_reviewed_languages`, read directly) calls `verify_complete_language_artifacts`, a
+completeness check rather than a judgment about whether the design is good, then dispatches
+`MarkQualityPassed` with an empty param object, and immediately after, `ensure_language_published`.
+ADR-0014 (`docs/adrs/0014-quality-finalizer-reviewability-gate.md`, read directly) confirms this in
+its own words: "Quality review finalization validates a `DesignLanguage`, marks quality as passed,
+and publishes the language," and describes "the finalizer" as "a Katagami WASM integration reacting
+to CurationJob finalization."
+
+So the boolean the `Publish` guard reads is set by this WASM finalizer, running under one of the
+Cedar-permitted `agent_type`s above and not a `ReviewAgent`-typed principal, as the last automated
+step of the same curator job that repaired the artifacts, gated on artifact completeness rather than
+on the independent reviewer's verdict. Nothing in `curation_job.ioa.toml`, `review_agent.ioa.toml`,
+or `human_curator.ioa.toml` connects `ReviewAgent.RecordVerdict` to `CompleteQualityReview` or to
+`MarkQualityPassed`; within the files read here, the curator's self-review-and-fix job that flips
+`quality_review_passed` and the independent `ReviewAgent`/`HumanCurator` pair that gates a human
+curator's own separate role-record `Publish` action appear structurally unconnected. This pass did
+not open `curation_job_template.ioa.toml` or the `direction_synthesized_creates_review_job` trigger
+definition closely enough to rule out a linkage elsewhere in the system that ties the two together;
+that gap is stated here, not only in "What I did not check," because the earlier draft's opposite
+claim, that the reviewer's verdict is what the `Publish` guard reads, was the part that was wrong.
 
 Embodiment rendering (the synthesize agent renders the language's roughly 15 canonical elements in a
 cloud sandbox and visually verifies them at three viewport sizes) is agent work, not a mechanism;
@@ -272,7 +318,7 @@ instructed.
 | Kaelig's pipeline | `brief.md`, `figma-raw.json`, `component-rules.md`, `architecture.md`, source files, a11y report, Storybook stories, visual report, quality report | grep for forbidden token prefix; `tsc`/lint/format; deterministic quality-score threshold (orchestrator hard-stop below 80%) | skill "pre-flight" instructions; memory (standing instructions); workarounds log; conversational `[BLOCKING]` judgment | a11y: same P1 twice; Quality Gate: same error after 1 retry; Visual Reviewer: 5 iterations or under 2% gain; quality score under 80% | yes, `[BLOCKING]` conversational gate, presented as risk tradeoffs, resumes only on explicit human "proceed" |
 | anydesign | `design.md` (7 sections), `design-tokens.json` (DTCG), optional `design-a11y.md` | none automatically invoked; `lint_design_md.py` and `verify_design.py` are real scripts but agent-invoked, not hooked | "don't invent tokens," confidence markers, mandatory Open Questions and Do's/Don'ts sections, "ALWAYS run the lint script" | none stated beyond telling the user clearly on capture failure | no formal gate; user reviews output and chooses next step |
 | TypeUI / awesome-design-skills | `SKILL.md` plus `DESIGN.md` per style, `index.json` registry manifest | none found in README or the one `SKILL.md` read in full | entire "Quality Gates" section is prose guidance for how the agent's own rules should read | none | none; CLI only writes files, no review step described |
-| Katagami | `DesignLanguage` spec (5 sections plus embodiment, compositions, thumbnail, `DESIGN.md`, shadcn export artifacts) | `SubmitForReview` and `Publish` guards on the Temper state machine: presence/shape booleans plus cross-entity File-readiness checks, read directly from `design_language.ioa.toml` | the review-quality agent's judgment of whether the embodiment matches the spec (`BEHAVIOR.md`); the synthesize agent's writing of each spec section | transition rejected outright if any guard condition is false; no retry loop described in README | yes, structurally: a separate credentialed review role must set `quality_review_passed` before `Publish` can succeed; README also describes a human curator approving publish |
+| Katagami | `DesignLanguage` spec (5 sections plus embodiment, compositions, thumbnail, `DESIGN.md`, shadcn export artifacts) | `SubmitForReview` and `Publish` guards on the Temper state machine: presence/shape booleans plus cross-entity File-readiness checks, read directly from `design_language.ioa.toml`; a Cedar `agent_type`/role allowlist gates who may call `MarkQualityPassed` | the curator agent's own `review-quality` skill judging and repairing its own or a sibling's artifacts before a WASM finalizer marks quality passed; separately, the independent `ReviewAgent`'s judgment (`BEHAVIOR.md`), which this pass found gates `HumanCurator.Publish`, not `DesignLanguage.Publish`; the synthesize agent's writing of each spec section | transition rejected outright if any guard condition is false; no retry loop described in README | partial and unclear: a Cedar-restricted credential (System/Admin/operator/curation-service/wasm-module/service:wasm-runtime, or owner/curator role) gates who may set `quality_review_passed`, but that is not the independent `ReviewAgent`; README also describes a human curator approving publish, on a track this pass could not confirm is wired to the artifact's own guard |
 | Anthropic `frontend-design` | none (guidance only, no named output file) | none | entire skill: named anti-patterns, two-pass plan-then-build process, self-critique instruction | none | none |
 | Anthropic `webapp-testing` | none (a toolkit, not a spec format) | none wired by the skill itself; gives the agent means to build a Playwright check | decision tree for choosing an approach; run helper scripts with `--help` first | none | none |
 | shadcn MCP/registry | registry item schema (not examined beyond the docs page) | none described | none beyond correct configuration | none | none |
@@ -288,10 +334,14 @@ instructed.
   `design_language.ioa.toml` guard is a clean worked example of the pattern this repo's own
   CLAUDE.md already commits to, worth reading as a template for the `Component.Publish` guard's
   shape. (Katagami)
-- Separate the role that produces from the role that reviews, and let the guard read only the
-  reviewer's verdict. Katagami's review-agent BEHAVIOR.md ("Never rule on your own work") plus the
-  `Publish` guard's `quality_review_passed` check prevents an unreviewed publish structurally,
-  while leaving review quality itself to the separate role's judgment. (Katagami)
+- Separate the role that produces from the role that reviews, and make sure the guard actually
+  reads that reviewer's verdict rather than a same-named boolean set by something else. Katagami's
+  `ReviewAgent` BEHAVIOR.md ("Never rule on your own work") is a real instance of the pattern, but
+  this pass found its verdict gates `HumanCurator.Publish`, a separate role-bookkeeping action, not
+  the `DesignLanguage.Publish` guard's `quality_review_passed` check, which a WASM finalizer sets
+  after its own artifact-completeness check. The pattern is worth copying for the human-approval
+  side; a harness copying the idea should verify the guard reads the actual reviewer credential,
+  not just a boolean with the reviewer's name on it. (Katagami)
 - Route agent-to-agent knowledge through named required files, not chat. Kaelig's fix for
   cross-agent drift, `component-rules.md` as a mandatory pre-flight load, generalizes past this one
   pipeline: downstream agents in fresh contexts need an explicit artifact contract. (Kaelig)
@@ -309,13 +359,21 @@ instructed.
   directly from `.ioa.toml`; its execution semantics were not verified against Temper's engine code.
   Similarly, Kaelig's post never names what software performs the quality-score hard stop; only the
   scoring arithmetic itself is confirmed deterministic, with no LLM judgment involved.
-- I did not read Katagami's `katagami-curation` agent skills (`research-direction`,
-  `synthesize-language`, `organize-taxonomy`) beyond the README's one-line descriptions, and read
-  only part of the review-agent `BEHAVIOR.md` (identity, evidence, ruling, non-self-review). I did
-  not read the curator-agent or human-curator behavior files, did not check how
-  `quality_review_passed` is written back to the entity or which action call performs that write,
-  and did not check `design_element.ioa.toml` or `element_manifest`, so the per-element guard
-  structure is unverified.
+- I did not read Katagami's other `katagami-curation` agent skills (`research-direction`,
+  `organize-taxonomy`, `synthesize-art-style`, `synthesize-palette`, `synthesize-writing-style`,
+  `taste-distillation`, `immersive-landing`) beyond the README's one-line descriptions, and read only
+  part of the review-agent `BEHAVIOR.md` (identity, evidence, ruling, non-self-review) and the
+  `review-quality` curator skill (enough to confirm its agent type and its call into
+  `CompleteQualityReview`, not every branch of its repair logic). I read `review_agent.ioa.toml`,
+  `human_curator.ioa.toml`, `curation_job.ioa.toml`, `design_language.cedar`, ADR-0014, and the
+  relevant functions of `finalize_spawned_session/src/lib.rs` directly to trace who writes
+  `quality_review_passed` (see the corrected section above), but I did not open
+  `curation_job_template.ioa.toml`, the `curator_agent.ioa.toml` spec itself, or the
+  `direction_synthesized_creates_review_job` trigger definition, so I cannot rule out some other
+  linkage between the independent `ReviewAgent`'s verdict and the `quality_review` job elsewhere in
+  the system. I did not read `finalize_spawned_session/src/lib.rs` beyond the functions cited (it is
+  over 7,000 lines), and did not check `design_element.ioa.toml` or `element_manifest`, so the
+  per-element guard structure is unverified.
 - I did not open anydesign's `scripts/lint_design_md.py` or `scripts/verify_design.py` source; what
   each checks is taken from the SKILL.md's prose description, not from reading the script logic.
 - I did not read any of the other 66 `awesome-design-skills` SKILL.md files beyond `minimal`, and
@@ -332,6 +390,13 @@ instructed.
   per this repo's format rule. I did not check `google-labs-code/design.md`, the format Katagami's
   `DESIGN.md` export targets compatibility with; that claim rests on Katagami's own
   `has_valid_design_md` guard flag and README description, not on reading Google's spec directly.
+- Corrected after the 2026-09-03 fidelity review: replaced a fabricated Kaelig quote about
+  `workarounds.md` with the source's actual wording; fixed the `SubmitForReview` guard's
+  cross-entity-check count from "four more" to "seven more" (8 File checks + 1 ArtStyle check = 9,
+  verified by direct count); and rewrote the Katagami quality-review section, table row, and one
+  "patterns worth carrying forward" bullet after tracing `MarkQualityPassed` to a Cedar
+  `agent_type`/role allowlist exercised by a WASM finalizer, not to the independent `ReviewAgent`'s
+  verdict, which this pass now shows gates `HumanCurator.Publish` instead.
 
 ## Sources
 
@@ -343,8 +408,15 @@ instructed.
 | awesome-design-skills `README.md` | https://raw.githubusercontent.com/bergside/awesome-design-skills/f631a09b4fcc0166f2e2c1a8c81906ef680c57e8/README.md | full |
 | awesome-design-skills `skills/minimal/SKILL.md` | https://raw.githubusercontent.com/bergside/awesome-design-skills/f631a09b4fcc0166f2e2c1a8c81906ef680c57e8/skills/minimal/SKILL.md | full |
 | Katagami `README.md` | https://raw.githubusercontent.com/arni-labs/katagami/5366ab8bbe7012a9768a37a12f869d7c9a0a3681/README.md | full |
-| Katagami `katagami-commons/specs/design_language.ioa.toml` | https://raw.githubusercontent.com/arni-labs/katagami/5366ab8bbe7012a9768a37a12f869d7c9a0a3681/katagami-commons/specs/design_language.ioa.toml | part (state variables and the `SubmitForReview`/`Publish`/`Revise`/`Archive` actions) |
+| Katagami `katagami-commons/specs/design_language.ioa.toml` | https://raw.githubusercontent.com/arni-labs/katagami/5366ab8bbe7012a9768a37a12f869d7c9a0a3681/katagami-commons/specs/design_language.ioa.toml | part (state variables and the `SubmitForReview`/`Publish`/`Revise`/`Archive`/`MarkQualityPassed`/`UpdateQuality` actions; guard array recounted directly by regex) |
 | Katagami `.agents/behaviors/review-agent/BEHAVIOR.md` | https://raw.githubusercontent.com/arni-labs/katagami/5366ab8bbe7012a9768a37a12f869d7c9a0a3681/.agents/behaviors/review-agent/BEHAVIOR.md | part (first ~100 lines) |
+| Katagami `katagami-commons/policies/design_language.cedar` | https://raw.githubusercontent.com/arni-labs/katagami/5366ab8bbe7012a9768a37a12f869d7c9a0a3681/katagami-commons/policies/design_language.cedar | full |
+| Katagami `katagami-curation/specs/review_agent.ioa.toml` | https://raw.githubusercontent.com/arni-labs/katagami/5366ab8bbe7012a9768a37a12f869d7c9a0a3681/katagami-curation/specs/review_agent.ioa.toml | full |
+| Katagami `katagami-curation/specs/human_curator.ioa.toml` | https://raw.githubusercontent.com/arni-labs/katagami/5366ab8bbe7012a9768a37a12f869d7c9a0a3681/katagami-curation/specs/human_curator.ioa.toml | full |
+| Katagami `katagami-curation/specs/curation_job.ioa.toml` | https://raw.githubusercontent.com/arni-labs/katagami/5366ab8bbe7012a9768a37a12f869d7c9a0a3681/katagami-curation/specs/curation_job.ioa.toml | part (the `CompleteQualityReview` action and its trigger block) |
+| Katagami `katagami-curation/agents/curator/skills/review-quality/SKILL.md` | https://raw.githubusercontent.com/arni-labs/katagami/5366ab8bbe7012a9768a37a12f869d7c9a0a3681/katagami-curation/agents/curator/skills/review-quality/SKILL.md | part (job-type header, "Process" section, and the `CompleteQualityReview` call) |
+| Katagami `docs/adrs/0014-quality-finalizer-reviewability-gate.md` | https://raw.githubusercontent.com/arni-labs/katagami/5366ab8bbe7012a9768a37a12f869d7c9a0a3681/docs/adrs/0014-quality-finalizer-reviewability-gate.md | full |
+| Katagami `katagami-curation/wasm/finalize_spawned_session/src/lib.rs` | https://raw.githubusercontent.com/arni-labs/katagami/5366ab8bbe7012a9768a37a12f869d7c9a0a3681/katagami-curation/wasm/finalize_spawned_session/src/lib.rs | part (the `verify_quality_reviewed_languages` function only, out of ~7,300 lines) |
 | Anthropic skills `skills/frontend-design/SKILL.md` | https://raw.githubusercontent.com/anthropics/skills/41bbe19d1a1a7eaab5e7bb9050a417e5c6cffc8f/skills/frontend-design/SKILL.md | full |
 | Anthropic skills `skills/webapp-testing/SKILL.md` | https://raw.githubusercontent.com/anthropics/skills/41bbe19d1a1a7eaab5e7bb9050a417e5c6cffc8f/skills/webapp-testing/SKILL.md | full |
 | shadcn MCP docs | https://ui.shadcn.com/docs/mcp (fetched 2026-09-03) | part (page content only) |

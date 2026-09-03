@@ -52,9 +52,9 @@ The MCP server (`packages/shadcn/src/mcp`, same SHA) exposes these tools, per th
 documentation at `skills/shadcn/mcp.md`:
 
 - `shadcn:get_project_registries`: reads `components.json`.
-- `shadcn:list_items_in_registries` / `shadcn:search_items_in_registries`: enumerate or fuzzy-search
-  configured registries (built-in `@shadcn`, namespaced registries, or any `owner/repo` GitHub source
-  with a root `registry.json`).
+- `shadcn:list_items_in_registries`: enumerates configured registries (built-in `@shadcn`, namespaced
+  registries, or any `owner/repo` GitHub source with a root `registry.json`).
+- `shadcn:search_items_in_registries`: fuzzy-searches the same set of registries.
 - `shadcn:view_items_in_registries`: full file contents of an item.
 - `shadcn:get_item_examples_from_registries`: demo code.
 - `shadcn:get_add_command_for_items`: the CLI command to install.
@@ -118,10 +118,10 @@ by the "21st MCP," reachable as a plain HTTP MCP server at `https://21st.dev/api
 header, exposing (per the README) "catalog search across components/themes/templates, paid code
 retrieval, bookmarks, team libraries, UI generation with variants, profile management, and more,"
 with new canonical tool names `generate`, `get_inspiration`, `search_logo`. The package description
-on the GitHub API record describes it as "like v0, but in your Cursor / Claude Code / Windsurf:
-search 10,000+ React/Tailwind components, generate new UI with AI, and publish your own." Nothing in
-this README describes token, accessibility, or composition constraints on generated output: it is a
-search-and-generate service, not a gate.
+on the GitHub API record describes it as "It's like v0, but in your Cursor / Claude Code / Windsurf:
+search 10,000+ React/Tailwind components, generate new UI with AI, and publish your own — right from
+your editor." Nothing in this README describes token, accessibility, or composition constraints
+on generated output: it is a search-and-generate service, not a gate.
 
 ### Prefab (PrefectHQ)
 
@@ -183,10 +183,10 @@ own output quality offline rather than gating a live publish path.
 
 | System | Tokens format and file | React components | Storybook | License | Fit as pilot |
 |---|---|---|---|---|---|
-| GitHub Primer (`primer/primitives`, pinned `93e536c26d7984f6d2368c0b102f111f079cfe0b`) | Custom JSON5, not raw DTCG: `src/tokens/base/{color,motion,size,typography}/*.json5`, e.g. `base/color/light/light.json5`. Distributed as compiled CSS variables under `dist/css/`. | Primer's React implementation lives in a sibling repo (`primer/react`, not opened here: see "What I did not check"). | Yes: badge and link to `https://primer.style/primitives/storybook/` in the README, and a `.playwright`/`docs/storybook` workspace entry in `package.json`. | MIT (declared in `package.json`; no separate `LICENSE` file found at this path in this repo: see gaps). | Good: token repo has its own CI gate already (`a11y-contrast.yml` runs a color-contrast check on every PR that touches tokens or dependencies: but note it runs with `continue-on-error: true`, so it reports and does not block merges). Only the token layer was opened here; the component repo needs separate verification before a pilot build. |
+| GitHub Primer (`primer/primitives`, pinned `93e536c26d7984f6d2368c0b102f111f079cfe0b`) | Custom JSON5, not raw DTCG: `src/tokens/base/{color,motion,size,typography}/*.json5`, e.g. `base/color/light/light.json5`. Distributed as compiled CSS variables under `dist/css/`. | Primer's React implementation lives in a sibling repo (`primer/react`, not opened here: see "What I did not check"). | Yes: badge and link to `https://primer.style/primitives/storybook/` in the README, and a `.playwright`/`docs/storybook` workspace entry in `package.json`. | MIT (declared in `package.json`; no separate `LICENSE` file found at this path in this repo: see gaps). | Good: token repo has its own CI gate already. `a11y-contrast.yml`, read in full, runs a color-contrast check on every PR that touches tokens or dependencies: the `build` job sets `continue-on-error: true` (so its own later steps, which post a PR comment and job summary, still run after a failing check step), but a separate downstream job, `Fail_action_on_contrast_failing`, has no `continue-on-error` and calls `exit 1` whenever `build` reports any failing check, which fails the overall workflow run. Whether that failed run is a required status check that actually blocks the merge button is a repository branch-protection setting this workflow file cannot show. Only the token layer was opened here; the component repo needs separate verification before a pilot build. |
+| Atlassian Design System tokens (`@atlaskit/tokens`, npm `repository` field pins `bitbucket.org/atlassian/atlassian-frontend-mirror`, a public monorepo mirror; commit `728c79c92e88eb0074db4d8f28591f799ca9917b` pinned via the Bitbucket commits API) | Custom format, not DTCG: `design-system/tokens/src/artifacts/token-data.json5` (JSON5) plus generated TypeScript/CSS artifacts, consumed through a `token()` function API rather than raw token files. | Yes, first-party: dozens of sibling `design-system/<component>` packages in the same mirror (`button`, `avatar`, `form`, `modal-dialog`, and more), confirmed present in the repo tree at the pinned commit. | Not found: the `design-system/button` package's file tree (checked as a sample) has `docs`, `examples`, and a `constellation` directory (Atlassian's own internal docs tool) but no `.storybook` config; no Storybook was found anywhere in a root-level tree listing either. | Apache-2.0 (confirmed both via `npm view @atlaskit/tokens license` and the `license` field in `design-system/tokens/package.json` at the pinned commit). | Verified further than the original pass found: the earlier GitHub-only search missed that `@atlaskit/tokens`'s own npm `repository` field names a public Bitbucket mirror. Token format, a first-party component library, and license are now confirmed from that primary source; Storybook is confirmed absent, not merely unchecked. Worth a second look as a pilot candidate, with the caveat that its token format is bespoke (JSON5 plus a runtime `token()` API) rather than a widely reused open schema. |
 | IBM Carbon (`carbon-design-system/carbon`, pinned `d8042305a792ffe57c3a37f045ccb89c705ba9b1`) | DTCG-format JSON confirmed present: `packages/themes/src/dtcg/components/*.json` (e.g. `button.json`, `content-switcher.json`, `notification.json`), alongside Sass/JS token packages (`@carbon/colors`, `@carbon/layout`, `@carbon/motion`, `@carbon/type`, `@carbon/themes`). | Yes, in-repo and first-party: `@carbon/react` and `@carbon/web-components`, both listed in the monorepo's own package table. | Yes, both flavors: linked from the README (`react-storybook`, `wc-storybook`) and confirmed by deploy workflows (`deploy-react-storybook.yml`, `deploy-web-components-storybook.yml`). | Apache-2.0 (`LICENSE` file, verified first three lines). | Strongest verified candidate. Everything needed for a pilot (machine-readable tokens including a DTCG subset, a first-party React library, live Storybook, permissive license, all confirmed inside one monorepo at one pinned SHA) is present without cross-repo chasing. |
 | Adobe Spectrum (`adobe/spectrum-design-data`, formerly `spectrum-tokens`, pinned `f81ed06323631b3b0f375b37b0beacb3a63b6ce1`) | Custom "Design Data" format with its own normative spec (`packages/design-data-spec`, "Spec version 1.0.0-draft"), JSON Schemas (Draft 2020-12) and a rule catalog (`rules/rules.yaml`, rules `SPEC-001`…`SPEC-006`); token package is `packages/tokens`. Not DTCG. | React implementation is the separate `adobe/react-spectrum` repo (Apache-2.0, confirmed via the GitHub API record only: not opened further here). | Not verified in this pass: react-spectrum was not opened beyond its license/description. | Apache-2.0 (root `LICENSE`, verified). | Interesting but split across two repos (tokens/data vs. React components), and the token format is Spectrum-specific rather than a widely reused open schema: see the MCP section below for why this repo is the most relevant one *for the harness's mechanism*, independent of whether it becomes the pilot's token source. |
-| Atlassian Design System tokens | Not verified. No public `atlassian/*` GitHub repository for design tokens was found by API search (`search/repositories?q=org:atlassian+tokens` returns no design-system result; `atlassian/atlassian-frontend-mirror` and a documented tokens overview page both 404'd). Tokens are distributed as the `@atlaskit/tokens` npm package with no confirmed public source repository. | Not verified for the same reason. | Not verified. | Not verified. | Dropped as a pilot candidate: cannot pin a primary source per rule 1. |
 
 ## Table: what each system exposes, supplies, and constrains
 
@@ -202,7 +202,7 @@ own output quality offline rather than gating a live publish path.
 | CopilotKit | npm packages, AG-UI protocol | Generative UI / shared state / human-in-the-loop components | None (out of scope: UI for an agent, not UI by one) | N/A |
 | oa-design (OpenLabs) | CLI (`getopen-design add/tokens/skill`), Claude Code skill directory, one-file `DESIGN-SKILL.md` | Type-checked component recipes, token CSS, one-file design language for any agent | Ten stated rules (one neutral color, one spring family, squircle/pill shape rules, a11y quality floor) | Prose in the skill file; recipes are mechanically derived from compiled TS so doc and code can't drift, but nothing gates a new component against the ten rules. Offline eval suite scores skill output, not a live gate. |
 | Adobe Spectrum Design Data (`design-data-agent-mcp`) | MCP server with tools `primer`, `resolve_token`, `query_tokens`, `describe_component`, `validate_usage`, `diff_datasets`, `write`; also a packaged Claude Code skill | Full token taxonomy, component schemas, field definitions, to an agent authoring session | `validate_usage`: "Validate token usage and return a diagnostic report" | Reports, does not gate. The tool is callable by the agent and returns diagnostics; nothing in the MCP server or skill blocks the agent's output if it ignores the report. Separately, the repo's own token package is validated in CI via Moon tasks (`tokens:validateDesignData`) against JSON Schema and a rule catalog: that gates merges to the *token data repo itself*, not an agent's downstream component. |
-| GitHub Primer (primitives) | npm package, CSS variable distribution, Storybook | Color/spacing/typography primitives | Color contrast, checked on PRs touching tokens | Reports, not gate: the `a11y-contrast.yml` workflow runs `continue-on-error: true`, so a failing contrast check does not block a merge. |
+| GitHub Primer (primitives) | npm package, CSS variable distribution, Storybook | Color/spacing/typography primitives | Color contrast, checked on PRs touching tokens | Fails the run, blocking status unconfirmed: the `build` job has `continue-on-error: true`, but a separate `Fail_action_on_contrast_failing` job (no `continue-on-error`, `exit 1` on any failing check) fails the overall workflow whenever a contrast check fails. Whether that failed run is a required status check on the branch, which would actually block the merge button, is not something the workflow file itself can show. |
 | IBM Carbon | npm packages (`@carbon/react`, `@carbon/web-components`, `@carbon/themes`, etc.), Storybook | React and web-component implementations, Sass/JS/DTCG-JSON tokens | Not evaluated for an agent-facing gate: none found; standard CI (`ci.yml`) covers the library's own tests | Not applicable: no agent-consumption surface was found; this is a candidate for what to build the harness *against*, not a peer of the agent-facing systems above |
 
 ## What I did not check
@@ -214,8 +214,8 @@ own output quality offline rather than gating a live publish path.
 - I did not open `adobe/react-spectrum` beyond its GitHub API description and license field; no
   README, install instructions, or Storybook link were verified for it.
 - I did not fully audit Carbon's CI (`ci.yml`, `achecker.js` at the repo root suggests an accessibility
-  checker exists) to determine whether any check there gates merges the way Primer's contrast check
-  explicitly does not. `achecker.js` was seen in the file tree only, not opened.
+  checker exists) to determine whether any check there gates merges the way Primer's `a11y-contrast.yml`
+  fails its own run on a violation. `achecker.js` was seen in the file tree only, not opened.
 - I did not verify whether `@adobe/design-data-agent-mcp`'s `write` tool ("Write agent-generated
   product context to the dataset") has any validation attached before a write lands, only that it
   exists as a named tool in the README's table.
@@ -223,10 +223,11 @@ own output quality offline rather than gating a live publish path.
   development" banner and I read the `main` branch tip on 2026-09-03 rather than a fixed SHA, so a
   future reader following the citation may see different content. This is a deliberate exception to
   rule 1's spirit, noted rather than hidden.
-- Atlassian Design System tokens: I did not find a public source repository to open at all (search
-  API and a direct docs-page fetch both failed), so I could not verify machine-readable format,
-  component library, Storybook, or license from a primary source, and dropped it from the pilot
-  table entirely rather than filling the row from memory.
+- Atlassian Design System tokens: the corrected pass found the source (the npm package's own
+  `repository` field, pointing to a public Bitbucket mirror), but I did not open the `tokens`
+  package's own README, did not confirm Storybook's absence beyond one sample component package's
+  file tree (`button`), and did not check whether any first-party React component package other
+  than the tokens package itself is published to npm under a name I searched for.
 - I did not test any of the MCP servers described here by actually connecting a client to them
   (shadcn's, 21st's, or Adobe's): everything above is drawn from published source/schema files and
   vendor documentation text, not from an observed tool-call transcript.
@@ -239,6 +240,12 @@ own output quality offline rather than gating a live publish path.
 - I did not investigate whether shadcn's `evals/evals.json` or oa-design's `evals/evals.json` are run
   in any CI pipeline for those repos; I only confirmed the files exist and what one entry each
   contains.
+- Corrected after the 2026-09-03 fidelity review: read the full `a11y-contrast.yml` and corrected
+  the claim that Primer's contrast check does not block merges (a separate job does fail the run,
+  though whether that is a required status check is unconfirmed); restored Atlassian Design System
+  tokens to the pilot table after finding its public Bitbucket mirror via the npm package's own
+  `repository` field; fixed a silently truncated 21st.dev quote; and split one shadcn MCP bullet
+  that had bundled two distinct tools into two, so all seven tools are listed separately.
 
 ## Sources
 
@@ -273,7 +280,7 @@ own output quality offline rather than gating a live publish path.
 | primer/primitives tree | `github.com/primer/primitives` @ `93e536c26d7984f6d2368c0b102f111f079cfe0b` | part (tree listing) |
 | primer/primitives README | `https://raw.githubusercontent.com/primer/primitives/93e536c26d7984f6d2368c0b102f111f079cfe0b/README.md` | part (first 40 lines) |
 | primer/primitives package.json | `https://raw.githubusercontent.com/primer/primitives/93e536c26d7984f6d2368c0b102f111f079cfe0b/package.json` | part (first 30 lines) |
-| primer/primitives a11y-contrast.yml | `https://raw.githubusercontent.com/primer/primitives/93e536c26d7984f6d2368c0b102f111f079cfe0b/.github/workflows/a11y-contrast.yml` | part (first 30 lines) |
+| primer/primitives a11y-contrast.yml | `https://raw.githubusercontent.com/primer/primitives/93e536c26d7984f6d2368c0b102f111f079cfe0b/.github/workflows/a11y-contrast.yml` | full |
 | adobe/spectrum-tokens README (rename notice) | `https://raw.githubusercontent.com/adobe/spectrum-tokens/1c78755d138ecd340cce5b7bcd260526d854456b/README.md` | full |
 | adobe/spectrum-design-data tree | `github.com/adobe/spectrum-design-data` @ `f81ed06323631b3b0f375b37b0beacb3a63b6ce1` | part (tree listing, filtered) |
 | adobe/spectrum-design-data README | `https://raw.githubusercontent.com/adobe/spectrum-design-data/f81ed06323631b3b0f375b37b0beacb3a63b6ce1/README.md` | part (~50 lines) |
@@ -289,4 +296,11 @@ own output quality offline rather than gating a live publish path.
 | carbon LICENSE | `https://raw.githubusercontent.com/carbon-design-system/carbon/d8042305a792ffe57c3a37f045ccb89c705ba9b1/LICENSE` | part (header) |
 | carbon DTCG token tree (`packages/themes/src/dtcg`) | tree listing at same SHA | part (filenames only, contents not opened) |
 | adobe/react-spectrum repo metadata | `gh api repos/adobe/react-spectrum`, fetched 2026-09-03 | part (description + license field only) |
-| Atlassian design tokens search | `gh api search/repositories?q=org:atlassian+tokens`, `gh api repos/atlassian/atlassian-frontend-mirror`, `atlassian.design/components/tokens/overview/`, fetched 2026-09-03 | attempted, all returned not-found: no content to read |
+| Atlassian design tokens search (original GitHub-only attempt) | `gh api search/repositories?q=org:atlassian+tokens`, `gh api repos/atlassian/atlassian-frontend-mirror`, `atlassian.design/components/tokens/overview/`, fetched 2026-09-03 | attempted, all returned not-found: no content to read (see corrected rows below) |
+| `@atlaskit/tokens` npm repository field | `npm view @atlaskit/tokens repository --json`, fetched 2026-09-03 | full |
+| Bitbucket repo metadata: `atlassian/atlassian-frontend-mirror` | `https://api.bitbucket.org/2.0/repositories/atlassian/atlassian-frontend-mirror`, fetched 2026-09-03 | full (confirmed `is_private: false`) |
+| Bitbucket directory listing: `design-system/` | `https://api.bitbucket.org/2.0/repositories/atlassian/atlassian-frontend-mirror/src/728c79c92e88eb0074db4d8f28591f799ca9917b/design-system/?pagelen=100`, fetched 2026-09-03 | full (90 sibling package directories, including `tokens`) |
+| Bitbucket commits API (pin) | `https://api.bitbucket.org/2.0/repositories/atlassian/atlassian-frontend-mirror/commits?pagelen=1`, fetched 2026-09-03 | full (top commit `728c79c92e88eb0074db4d8f28591f799ca9917b`) |
+| `design-system/tokens/package.json` at pinned commit | `https://api.bitbucket.org/2.0/repositories/atlassian/atlassian-frontend-mirror/src/728c79c92e88eb0074db4d8f28591f799ca9917b/design-system/tokens/package.json` | full |
+| `design-system/tokens/src/artifacts/` listing at pinned commit | `https://api.bitbucket.org/2.0/repositories/atlassian/atlassian-frontend-mirror/src/728c79c92e88eb0074db4d8f28591f799ca9917b/design-system/tokens/src/artifacts/?pagelen=100` | full (filenames only, `token-data.json5` confirmed present) |
+| `design-system/button/` listing (Storybook check) | `https://api.bitbucket.org/2.0/repositories/atlassian/atlassian-frontend-mirror/src/728c79c92e88eb0074db4d8f28591f799ca9917b/design-system/button/?pagelen=100`, fetched 2026-09-03 | full (no `.storybook` directory found) |
